@@ -4,7 +4,7 @@ import { auth } from '../services/firebase';
 
 type Mode = 'login' | 'register';
 
-const AuthPage: React.FC<{ onSignedIn?: () => void }> = ({ onSignedIn }) => {
+const AuthPage: React.FC<{ onSignedIn?: () => void; compact?: boolean }> = ({ onSignedIn, compact = false }) => {
   const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -82,25 +82,26 @@ const AuthPage: React.FC<{ onSignedIn?: () => void }> = ({ onSignedIn }) => {
   };
 
   return (
-    <div className="bg-slate-900 text-white min-h-screen font-sans">
-      <div className="container mx-auto p-4 md:p-8 flex items-center justify-center min-h-screen">
-        <div className="w-full max-w-5xl bg-slate-800 rounded-2xl shadow-xl overflow-hidden grid grid-cols-1 md:grid-cols-2">
-          {/* Branding panel */}
-          <div className="p-8 bg-gradient-to-b from-slate-800 to-slate-900 flex flex-col justify-center">
-            <h1 className="text-4xl font-extrabold text-emerald-400">NutriSnap AI</h1>
-            <p className="text-slate-400 mt-3">AI-powered food logging that follows you across devices.</p>
+    <div className={compact ? 'font-sans' : 'bg-slate-900 text-white min-h-screen font-sans'}>
+      <div className={compact ? 'p-4 flex items-center justify-center' : 'container mx-auto p-4 md:p-8 flex items-center justify-center min-h-screen'}>
+        <div className={compact ? 'w-full max-w-md bg-slate-800 rounded-2xl shadow-xl overflow-hidden' : 'w-full max-w-5xl bg-slate-800 rounded-2xl shadow-xl overflow-hidden grid grid-cols-1 md:grid-cols-2'}>
+          {!compact && (
+            <div className="p-8 bg-gradient-to-b from-slate-800 to-slate-900 flex flex-col justify-center">
+              <h1 className="text-4xl font-extrabold text-emerald-400">NutriSnap AI</h1>
+              <p className="text-slate-400 mt-3">AI-powered food logging that follows you across devices.</p>
 
-            <ul className="mt-6 space-y-3 text-slate-300">
-              <li className="flex items-start gap-3"><span className="text-emerald-400 font-bold">•</span> Fast photo-based logging</li>
-              <li className="flex items-start gap-3"><span className="text-emerald-400 font-bold">•</span> Sync across devices</li>
-              <li className="flex items-start gap-3"><span className="text-emerald-400 font-bold">•</span> Private & secure</li>
-            </ul>
+              <ul className="mt-6 space-y-3 text-slate-300">
+                <li className="flex items-start gap-3"><span className="text-emerald-400 font-bold">•</span> Fast photo-based logging</li>
+                <li className="flex items-start gap-3"><span className="text-emerald-400 font-bold">•</span> Sync across devices</li>
+                <li className="flex items-start gap-3"><span className="text-emerald-400 font-bold">•</span> Private & secure</li>
+              </ul>
 
-            <div className="mt-8 text-xs text-slate-500">By signing in you agree to sync your logs to your account.</div>
-          </div>
+              <div className="mt-8 text-xs text-slate-500">By signing in you agree to sync your logs to your account.</div>
+            </div>
+          )}
 
           {/* Form panel */}
-          <div className="p-8">
+          <div className={compact ? 'p-6' : 'p-8'}>
             <div className="space-y-4">
               <div className="flex items-center justify-between mb-2">
                 <div>
