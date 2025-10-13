@@ -6,6 +6,7 @@ import LogFoodModal from './components/LogFoodModal';
 import LogFoodActions from './components/LogFoodActions';
 import BottomNav from './components/BottomNav';
 import AuthPage from './components/AuthPage';
+import SignupModal from './components/SignupModal';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { FoodItem, MacroGoals } from './types';
 import { auth } from './services/firebase';
@@ -24,6 +25,7 @@ const App: React.FC = () => {
   const [goals, setGoals] = useState<MacroGoals>({ calories: 2000, protein: 150, carbs: 250, fat: 65 });
   const [modalConfig, setModalConfig] = useState<{ isOpen: boolean; initialTab: ModalTab }>({ isOpen: false, initialTab: 'camera' });
   const [activeSection, setActiveSection] = useState<'main' | 'insights' | 'calendar' | 'profile'>('main');
+  const [showSignupModal, setShowSignupModal] = useState(false);
 
   const formattedDate = getFormattedDate(selectedDate);
 
@@ -179,13 +181,13 @@ const App: React.FC = () => {
 
   return (
     <div className="bg-slate-900 text-white min-h-screen font-sans pb-24"> 
-      <div className="container mx-auto p-4 md:p-8">
+  <div className="container mx-auto p-4 md:p-8">
         <header className="text-center mb-8">
           <h1 className="text-4xl font-extrabold text-emerald-400">NutriSnap AI</h1>
           <p className="text-slate-400 mt-2">Your AI-powered nutrition companion.</p>
         </header>
 
-        <main className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+  <main className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {activeSection === 'main' && (
             <div className="lg:col-span-2 flex items-center justify-center min-h-[60vh]">
               <LogFoodActions onAction={handleOpenModal} />
@@ -285,7 +287,23 @@ const App: React.FC = () => {
           />
         )}
         {/* Bottom navigation bar */}
-        <BottomNav active={activeSection} onChange={(s) => setActiveSection(s)} />
+        <BottomNav
+          active={activeSection}
+          onChange={(s) => {
+            // If user is anonymous (guest) and trying to access calendar, show signup modal instead
+            if (s === 'calendar' && auth.currentUser && auth.currentUser.isAnonymous) {
+              setShowSignupModal(true);
+              return;
+            }
+            setActiveSection(s);
+          }}
+        />
+
+        <SignupModal open={showSignupModal} onClose={() => setShowSignupModal(false)} onSignedIn={() => {
+          // when signed in, switch to calendar view
+          setShowSignupModal(false);
+          setActiveSection('calendar');
+        }} />
       </div>
     </div>
   );
