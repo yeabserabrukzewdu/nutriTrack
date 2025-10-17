@@ -1,3 +1,4 @@
+// ...existing code...
 import React from 'react';
 import { CameraIcon, UploadIcon } from './Icons';
 
@@ -14,6 +15,7 @@ const LogFoodActions: React.FC<LogFoodActionsProps> = ({ onAction }) => {
 
   const openNativeFileInput = () => {
     try {
+      // synchronous click inside user gesture so mobile browsers open camera picker
       fileInputRef.current?.click();
     } catch {
       // ignore
@@ -28,7 +30,7 @@ const LogFoodActions: React.FC<LogFoodActionsProps> = ({ onAction }) => {
       try {
         window.dispatchEvent(
           new CustomEvent('nutritrack:file-captured', {
-            detail: { name: file.name, dataUrl: reader.result },
+            detail: { name: file.name, dataUrl: reader.result }
           })
         );
       } catch {
@@ -36,41 +38,20 @@ const LogFoodActions: React.FC<LogFoodActionsProps> = ({ onAction }) => {
       }
     };
     reader.readAsDataURL(file);
+    // open upload flow so modal can handle the file if it's listening
     onAction('upload');
+    // clear so same file can be picked again
     (e.target as HTMLInputElement).value = '';
   };
 
-  const handleCameraClick = async () => {
-    if (
-      isMobile &&
-      document.documentElement &&
-      (document.documentElement.requestFullscreen || (document.documentElement as any).webkitRequestFullscreen)
-    ) {
-      try {
-        if ((document.documentElement as any).webkitRequestFullscreen) {
-          (document.documentElement as any).webkitRequestFullscreen();
-        } else {
-          await document.documentElement.requestFullscreen();
-        }
-      } catch {
-        // ignore fullscreen failures
-      }
-    }
-
-    await new Promise((res) => setTimeout(res, 250));
-
-    try {
-      (document.activeElement as HTMLElement | null)?.blur?.();
-      window.focus?.();
-    } catch {
-      // ignore
-    }
-
+  const handleCameraClick = (e: React.MouseEvent) => {
+    // IMPORTANT: for mobile, open native capture synchronously in the click handler
     if (isMobile) {
       openNativeFileInput();
       return;
     }
 
+    // desktop: use existing camera flow (modal / getUserMedia)
     onAction('camera');
   };
 
@@ -92,7 +73,6 @@ const LogFoodActions: React.FC<LogFoodActionsProps> = ({ onAction }) => {
             <h3 className="text-2xl font-bold text-white">Log a meal</h3>
             <p className="text-sm text-slate-400">Use a photo to quickly analyze and add foods to your log.</p>
           </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <button
               onClick={handleCameraClick}
@@ -101,18 +81,13 @@ const LogFoodActions: React.FC<LogFoodActionsProps> = ({ onAction }) => {
             >
               <CameraIcon className="w-10 h-10" />
               <span className="text-lg">Take a Picture</span>
-              <span className="text-xs text-slate-200/80">
-                {isMobile ? 'Opens fullscreen camera' : 'Open the camera to capture a meal'}
-              </span>
+              <span className="text-xs text-slate-200/80">{isMobile ? 'Opens native camera' : 'Open the camera to capture a meal'}</span>
             </button>
 
             <button
               onClick={() => {
-                if (isMobile) {
-                  openNativeFileInput();
-                } else {
-                  onAction('upload');
-                }
+                if (isMobile) openNativeFileInput();
+                else onAction('upload');
               }}
               aria-label="Upload a photo"
               className="flex flex-col items-center justify-center gap-3 bg-gradient-to-b from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-600 transform hover:-translate-y-1 transition-all text-white font-semibold rounded-xl p-6 min-h-[140px] shadow-lg"
@@ -129,3 +104,4 @@ const LogFoodActions: React.FC<LogFoodActionsProps> = ({ onAction }) => {
 };
 
 export default LogFoodActions;
+// ...existing code...
