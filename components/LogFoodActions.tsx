@@ -1,107 +1,42 @@
-// ...existing code...
 import React from 'react';
 import { CameraIcon, UploadIcon } from './Icons';
 
 interface LogFoodActionsProps {
-  onAction: (action: 'camera' | 'upload') => void;
+    onAction: (action: 'camera' | 'upload') => void;
 }
 
 const LogFoodActions: React.FC<LogFoodActionsProps> = ({ onAction }) => {
-  const isMobile =
-    typeof navigator !== 'undefined' &&
-    (/Mobi|Android/i.test(navigator.userAgent) || window.innerWidth <= 640);
+        return (
+                <div className="w-full flex justify-center">
+                    <div className="w-full max-w-4xl bg-gradient-to-r from-slate-800 to-slate-900 border border-slate-700 p-8 rounded-3xl shadow-2xl">
+                        <div className="mb-4 text-center">
+                            <h3 className="text-2xl font-bold text-white">Log a meal</h3>
+                            <p className="text-sm text-slate-400">Use a photo to quickly analyze and add foods to your log.</p>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <button
+                                onClick={() => onAction('camera')}
+                                aria-label="Take a picture"
+                                className="flex flex-col items-center justify-center gap-3 bg-gradient-to-b from-sky-600 to-sky-500 hover:from-sky-500 hover:to-sky-600 transform hover:-translate-y-1 transition-all text-white font-semibold rounded-xl p-6 min-h-[140px] shadow-lg"
+                            >
+                                <CameraIcon className="w-10 h-10" />
+                                <span className="text-lg">Take a Picture</span>
+                                <span className="text-xs text-slate-200/80">Open the camera to capture a meal</span>
+                            </button>
 
-  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
-
-  const openNativeFileInput = () => {
-    try {
-      // synchronous click inside user gesture so mobile browsers open camera picker
-      fileInputRef.current?.click();
-    } catch {
-      // ignore
-    }
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        window.dispatchEvent(
-          new CustomEvent('nutritrack:file-captured', {
-            detail: { name: file.name, dataUrl: reader.result }
-          })
+                            <button
+                                onClick={() => onAction('upload')}
+                                aria-label="Upload a photo"
+                                className="flex flex-col items-center justify-center gap-3 bg-gradient-to-b from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-600 transform hover:-translate-y-1 transition-all text-white font-semibold rounded-xl p-6 min-h-[140px] shadow-lg"
+                            >
+                                <UploadIcon className="w-10 h-10" />
+                                <span className="text-lg">Upload a Photo</span>
+                                <span className="text-xs text-slate-200/80">Choose an existing image from your device</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
         );
-      } catch {
-        // ignore
-      }
-    };
-    reader.readAsDataURL(file);
-    // open upload flow so modal can handle the file if it's listening
-    onAction('upload');
-    // clear so same file can be picked again
-    (e.target as HTMLInputElement).value = '';
-  };
-
-  const handleCameraClick = (e: React.MouseEvent) => {
-    // IMPORTANT: for mobile, open native capture synchronously in the click handler
-    if (isMobile) {
-      openNativeFileInput();
-      return;
-    }
-
-    // desktop: use existing camera flow (modal / getUserMedia)
-    onAction('camera');
-  };
-
-  return (
-    <>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={handleFileChange}
-        aria-hidden
-      />
-
-      <div className="w-full flex justify-center">
-        <div className="w-full max-w-4xl bg-gradient-to-r from-slate-800 to-slate-900 border border-slate-700 p-8 rounded-3xl shadow-2xl">
-          <div className="mb-4 text-center">
-            <h3 className="text-2xl font-bold text-white">Log a meal</h3>
-            <p className="text-sm text-slate-400">Use a photo to quickly analyze and add foods to your log.</p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <button
-              onClick={handleCameraClick}
-              aria-label="Take a picture"
-              className="flex flex-col items-center justify-center gap-3 bg-gradient-to-b from-sky-600 to-sky-500 hover:from-sky-500 hover:to-sky-600 transform hover:-translate-y-1 transition-all text-white font-semibold rounded-xl p-6 min-h-[140px] shadow-lg"
-            >
-              <CameraIcon className="w-10 h-10" />
-              <span className="text-lg">Take a Picture</span>
-              <span className="text-xs text-slate-200/80">{isMobile ? 'Opens native camera' : 'Open the camera to capture a meal'}</span>
-            </button>
-
-            <button
-              onClick={() => {
-                if (isMobile) openNativeFileInput();
-                else onAction('upload');
-              }}
-              aria-label="Upload a photo"
-              className="flex flex-col items-center justify-center gap-3 bg-gradient-to-b from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-600 transform hover:-translate-y-1 transition-all text-white font-semibold rounded-xl p-6 min-h-[140px] shadow-lg"
-            >
-              <UploadIcon className="w-10 h-10" />
-              <span className="text-lg">Upload a Photo</span>
-              <span className="text-xs text-slate-200/80">Choose an existing image from your device</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </>
-  );
 };
 
 export default LogFoodActions;
-// ...existing code...
