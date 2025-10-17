@@ -1,4 +1,3 @@
-// ...existing code...
 import React, { useState, useEffect, useRef } from 'react';
 import CalendarView from './components/CalendarView';
 import MacroTracker from './components/MacroTracker';
@@ -8,13 +7,19 @@ import LogFoodActions from './components/LogFoodActions';
 import BottomNav from './components/BottomNav';
 import AuthPage from './components/AuthPage';
 import SignupModal from './components/SignupModal';
-import { signOut, onAuthStateChanged } from 'firebase/auth';
+import { signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { FoodItem, MacroGoals } from './types';
 import { auth } from './services/firebase';
-import { getLogEntries, addLogEntry, deleteLogEntry, subscribeToLogEntries } from './services/firestoreService';
+import {
+  getLogEntries,
+  addLogEntry,
+  deleteLogEntry,
+  subscribeToLogEntries,
+  getUserProfile,
+  setUserProfile
+} from './services/firestoreService';
 import { getFormattedDate, isSameDay } from './utils/dateUtils';
 import { XIcon, PlusIcon } from './components/Icons';
-// ...existing code...
 
 type ModalTab = 'camera' | 'upload' | 'search';
 
@@ -31,29 +36,25 @@ const App: React.FC = () => {
 
   const formattedDate = getFormattedDate(selectedDate);
   const lastMigratedUid = useRef<string | null>(null);
+  const unsubRef = useRef<() => void | null>(null);
 
-  // Load local fallback (goals + today's logs) when no user
+  // --- local fallback load/save ---
   useEffect(() => {
-    const loadLocal = () => {
-      try {
-        const savedGoals = localStorage.getItem('macroGoals');
-        if (savedGoals) setGoals(JSON.parse(savedGoals));
+    try {
+      const savedGoals = localStorage.getItem('macroGoals');
+      if (savedGoals) setGoals(JSON.parse(savedGoals));
 
-        if (!auth.currentUser) {
-          const savedFoods = localStorage.getItem(`foodLog-${formattedDate}`);
-          if (savedFoods) setLoggedFoods(JSON.parse(savedFoods));
-          else setLoggedFoods([]);
-        }
-      } catch (e) {
-        console.error('Failed to load local data', e);
-        setLoggedFoods([]);
+      if (!auth.currentUser) {
+        const savedFoods = localStorage.getItem(`foodLog-${formattedDate}`);
+        if (savedFoods) setLoggedFoods(JSON.parse(savedFoods));
+        else setLoggedFoods([]);
       }
-    };
-
-    loadLocal();
+    } catch (e) {
+      console.error('Failed to load local data', e);
+      setLoggedFoods([]);
+    }
   }, [selectedDate, formattedDate]);
 
-  // Save local per-day logs as an offline fallback
   useEffect(() => {
     try {
       localStorage.setItem(`foodLog-${formattedDate}`, JSON.stringify(loggedFoods));
@@ -62,20 +63,18 @@ const App: React.FC = () => {
     }
   }, [loggedFoods, formattedDate]);
 
-  // migrate local per-day logs into Firestore for the signed-in user, with dedupe
+  // --- migrate localStorage per-day logs into Firestore (dedupe) ---
   const migrateLocalToFirestore = async (uid: string) => {
     if (!uid) return;
-    if (lastMigratedUid.current === uid) return; // already migrated for this user during this session
+    if (lastMigratedUid.current === uid) return;
     try {
-      // fetch remote entries once to compare
-      const remoteEntries = await getLogEntries(uid).catch(() => [] as FoodItem[]);
+      const remoteEntries = await getLogEntries(uid).catch(() => []);
       const remoteSet = new Set<string>();
       remoteEntries.forEach(e => {
         const key = `${(e as any).name}::${(e as any).timestamp || ''}`;
         remoteSet.add(key);
       });
 
-      // iterate local storage keys
       const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
@@ -86,11 +85,7 @@ const App: React.FC = () => {
           for (const item of arr) {
             const ts = (item as any).timestamp || Date.now();
             const keyHash = `${item.name}::${ts}`;
-            if (remoteSet.has(keyHash)) {
-              // already exists remotely, skip
-              continue;
-            }
-            // write to Firestore
+            if (remoteSet.has(keyHash)) continue;
             await addLogEntry(uid, {
               name: item.name,
               calories: item.calories,
@@ -101,14 +96,12 @@ const App: React.FC = () => {
               timestamp: ts
             });
           }
-          // mark local key for removal after migration
           keysToRemove.push(key);
         } catch (e) {
           console.warn('Skipping invalid local key during migration', key, e);
         }
       }
 
-      // remove migrated local keys to avoid re-migration and duplicates
       for (const k of keysToRemove) {
         try { localStorage.removeItem(k); } catch { /* ignore */ }
       }
@@ -119,48 +112,104 @@ const App: React.FC = () => {
     }
   };
 
-  // Listen for auth state changes: initialize, set uid and anonymous flag, and migrate
+  // --- migrate Firestore logs from an anonymous uid (if present) into the newly signed-in uid ---
+  const migrateAnonFirestoreToUid = async (anonUid: string, newUid: string) => {
+    if (!anonUid || !newUid || anonUid === newUid) return;
+    try {
+      const anonEntries = await getLogEntries(anonUid).catch(() => []);
+      if (!anonEntries.length) return;
+      const remoteNew = await getLogEntries(newUid).catch(() => []);
+      const remoteSet = new Set(remoteNew.map(e => `${(e as any).name}::${(e as any).timestamp || ''}`));
+      for (const e of anonEntries) {
+        const key = `${(e as any).name}::${(e as any).timestamp || ''}`;
+        if (remoteSet.has(key)) continue;
+        await addLogEntry(newUid, {
+          name: e.name,
+          calories: e.calories,
+          protein: e.protein,
+          carbs: e.carbs,
+          fat: e.fat,
+          portion: e.portion,
+          timestamp: e.timestamp
+        });
+      }
+      // remove stored pending anon marker
+      try { localStorage.removeItem('pendingAnonUid'); } catch { /* ignore */ }
+    } catch (err) {
+      console.error('Failed to migrate anon firestore to new uid', err);
+    }
+  };
+
+  // --- auth listener: ensure user doc, perform migration, subscribe to logs ---
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
+    const unsubAuth = onAuthStateChanged(auth, async (user) => {
       setUserInitialized(true);
       const uid = user ? user.uid : null;
       setCurrentUserId(uid);
       setIsAnonymousUser(!!(user && user.isAnonymous));
 
+      // store pending anonymous uid if user is anonymous so we can migrate later if they create a new account
+      if (user && user.isAnonymous) {
+        try { localStorage.setItem('pendingAnonUid', user.uid); } catch { /* ignore */ }
+      }
+
       if (uid) {
-        // perform migration the moment a non-null user signs in
+        // ensure user doc exists
+        try {
+          await setUserProfile(uid, { email: user?.email ?? null });
+        } catch (e) {
+          console.warn('setUserProfile failed', e);
+        }
+
+        // migrate any localStorage logs into this uid
         await migrateLocalToFirestore(uid);
+
+        // if there was an anonymous uid saved previously (user used app anon then created new account),
+        // migrate Firestore docs from that anonymous uid into the current uid
+        try {
+          const pendingAnonUid = localStorage.getItem('pendingAnonUid');
+          if (pendingAnonUid && pendingAnonUid !== uid) {
+            await migrateAnonFirestoreToUid(pendingAnonUid, uid);
+          }
+        } catch (e) {
+          console.warn('anon -> uid migration check failed', e);
+        }
+
+        // subscribe to remote logs for this user
+        if (unsubRef.current) {
+          try { unsubRef.current(); } catch { /* ignore */ }
+          unsubRef.current = null;
+        }
+        unsubRef.current = subscribeToLogEntries(uid, (entries) => {
+          setLoggedFoods(entries as FoodItem[]);
+        });
       } else {
-        // if user signed out, keep local fallback visible
+        // user signed out; cleanup subscription and show local fallback
+        if (unsubRef.current) {
+          try { unsubRef.current(); } catch { /* ignore */ }
+          unsubRef.current = null;
+        }
         setLoggedFoods([]);
       }
     });
-    return () => unsub();
+
+    return () => {
+      try { unsubAuth(); } catch { /* ignore */ }
+      if (unsubRef.current) {
+        try { unsubRef.current(); } catch { /* ignore */ }
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // subscribe to Firestore logs when signed in
-  useEffect(() => {
-    if (!currentUserId) return;
-    const unsub = subscribeToLogEntries(currentUserId, (entries) => {
-      setLoggedFoods(entries as FoodItem[]);
-    });
-    return () => unsub();
-  }, [currentUserId]);
-
-  const handleOpenModal = (tab: ModalTab) => {
-    setModalConfig({ isOpen: true, initialTab: tab });
-  };
-
-  const handleCloseModal = () => {
-    setModalConfig({ isOpen: false, initialTab: 'camera' });
-  };
+  // --- UI actions ---
+  const handleOpenModal = (tab: ModalTab) => setModalConfig({ isOpen: true, initialTab: tab });
+  const handleCloseModal = () => setModalConfig({ isOpen: false, initialTab: 'camera' });
 
   const handleAddFood = async (foodItems: FoodItem[]) => {
-    // optimistic local update for immediate UX
+    // optimistic update
     setLoggedFoods(prev => [...prev, ...foodItems]);
 
-    // persist to Firestore if signed-in; remote subscription will reconcile ids/state
     if (auth.currentUser) {
       const uid = auth.currentUser.uid;
       for (const item of foodItems) {
@@ -176,25 +225,24 @@ const App: React.FC = () => {
           });
         } catch (e) {
           console.error('Failed to persist to Firestore', e);
-          // keep local copy as fallback (already added)
         }
       }
+    } else {
+      // saved locally by effect already
     }
-    // if not signed-in, localStorage effect saves the items automatically
+
     handleCloseModal();
   };
 
   const handleRemoveFood = async (foodId: string) => {
     setLoggedFoods(prev => prev.filter(item => item.id !== foodId));
     if (auth.currentUser) {
-      const uid = auth.currentUser.uid;
       try {
-        await deleteLogEntry(uid, foodId);
+        await deleteLogEntry(auth.currentUser.uid, foodId);
       } catch (e) {
         console.error('Failed to delete remote entry', e);
       }
     } else {
-      // update local fallback for current date
       try {
         const updated = loggedFoods.filter(item => item.id !== foodId);
         localStorage.setItem(`foodLog-${formattedDate}`, JSON.stringify(updated));
@@ -204,7 +252,7 @@ const App: React.FC = () => {
     }
   };
 
-  // Navigation guard that blocks anonymous users from calendar view
+  // navigation guard
   const handleNavChange = (s: 'main' | 'insights' | 'calendar' | 'profile') => {
     if (s === 'calendar' && isAnonymousUser) {
       setShowSignupModal(true);
@@ -220,8 +268,7 @@ const App: React.FC = () => {
 
   const handleGoToAuth = async () => {
     try {
-      // sign out anonymous user so AuthPage / signup flow appears
-      await signOut(auth);
+      await signOut(auth); // this will surface the AuthPage so user can sign up
     } catch (e) {
       console.error('Failed to sign out anonymous user', e);
     } finally {
@@ -229,6 +276,7 @@ const App: React.FC = () => {
     }
   };
 
+  // --- render ---
   if (!userInitialized) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
@@ -241,7 +289,7 @@ const App: React.FC = () => {
   }
 
   if (!currentUserId) {
-    return <AuthPage onSignedIn={() => { /* auth listener updates state */ }} />;
+    return <AuthPage onSignedIn={() => { /* auth listener will update state */ }} />;
   }
 
   return (
@@ -357,12 +405,11 @@ const App: React.FC = () => {
           />
         )}
 
-        {/* Bottom navigation bar */}
         <BottomNav active={activeSection} onChange={handleNavChange} />
 
         <SignupModal
           open={showSignupModal}
-          onClose={() => setShowSignupModal(false)}
+          onClose={handleCloseSignupModal}
           onSignedIn={() => {
             setShowSignupModal(false);
             setActiveSection('calendar');
@@ -374,4 +421,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-// ...existing code...
